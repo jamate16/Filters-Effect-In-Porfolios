@@ -3,6 +3,7 @@ import os
 
 import pandas as pd
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
 from enum import Enum
 
 
@@ -23,34 +24,116 @@ class OrderOfDate(Enum):
     DESCENDING = 2
 
 @dataclass
-class FileConfig:
+class FileStructureDetails:
     company_name_cell: str
     order_of_date: OrderOfDate
-    sheet_name_of_metric: str = ""
-    row_name_of_metric: str = ""
+    metric_sheet_name: str = ""
+    metric_row_name: str = ""
 
 
-class FrecuencyOfData(Enum):
+class FrequencyOfData(Enum):
     ANNUAL = 1
     QUARTERLY = 2
+
+class FileStyle(Enum):
+    A = 1
+    B = 2
+
+class IMetricExtractor(ABC):
+    def __init__(self, workbook : opx.Workbook, file_structure_details : FileStructureDetails):
+        self.workbook = workbook
+        self.file_structure_details = file_structure_details
+
+    @abstractmethod
+    def get_company_name(self):
+        pass
+
+    @abstractmethod
+    def get_company_ticker(self):
+        pass
+
+    @abstractmethod
+    def get_metric_name(self):
+        pass
+
+    @abstractmethod
+    def get_metric_data(self):
+        pass
+
+class MetricExtractorFileStyleA(IMetricExtractor):
+    def get_company_name(self):
+        pass
+
+    def get_company_ticker(self):
+        pass
+
+    def get_metric_name(self):
+        pass
+
+    def get_metric_data(self):
+        pass
+
+class MetricExtractorFileStyleB(IMetricExtractor):
+    def get_company_name(self):
+        pass
+
+    def get_company_ticker(self):
+        pass
+
+    def get_metric_name(self):
+        pass
+
+    def get_metric_data(self):
+        pass
+
+class PerMetricExtractor():
+    def __init__(self, metric_extractors : dict, data_folder : str):
+        self.metric_extractors = metric_extractors
+        self.data_folder = data_folder
+        self.file_names = os.listdir(data_folder)
+
+    def extract(self, data_frequency : FrequencyOfData):
+        for file in self.file_names:
+            # TODO: Open the right workbook (based on the frequency)
+
+            # TODO: Get type of file with determine_file_style()
+
+            # TODO: Select the extractor based on the FileStyle
+
+            # TODO: Field by field extract the data for to instantiate MetricOfCompany()
+
+            # TODO: Instantiate MetricOfCompany()
+
+            # TODO: Return MetricOfCompany
+            
+            pass
+        
+
+def determine_file_style(workbook : opx.Workbook) -> FileStyle:
+    if "":
+        return FileStyle.A
+    elif "":
+        return FileStyle.B
+    else:
+        return None  
 
 
 class DataExtractorConfig:
 
-    def __init__(self, files_path: str, file_a_config: FileConfig, file_b_config: FileConfig):
+    def __init__(self, files_path: str, file_a_config: FileStructureDetails, file_b_config: FileStructureDetails):
         self.files_path = files_path
         self.file_a = file_a_config
         self.file_b = file_b_config
 
-    def set_up_file_types(self, sheet_a: str, row_a: str, sheet_b: str, row_b: str, frecuency_of_data: FrecuencyOfData = FrecuencyOfData.QUARTERLY):
-        self.file_a.sheet_name_of_metric = sheet_a
-        self.file_a.row_name_of_metric = row_a
-        self.file_b.sheet_name_of_metric = sheet_b
-        self.file_b.row_name_of_metric = row_b
+    def set_up_file_types(self, sheet_a: str, row_a: str, sheet_b: str, row_b: str, frecuency_of_data: FrequencyOfData = FrequencyOfData.QUARTERLY):
+        self.file_a.metric_sheet_name = sheet_a
+        self.file_a.metric_row_name = row_a
+        self.file_b.metric_sheet_name = sheet_b
+        self.file_b.metric_row_name = row_b
         self.frecuency_of_data = frecuency_of_data
 
     def fully_set_up(self) -> bool:
-        return self.file_a.sheet_name_of_metric != "" and self.file_a.row_name_of_metric != "" and self.file_b.sheet_name_of_metric != "" and self.file_b.row_name_of_metric != ""
+        return self.file_a.metric_sheet_name != "" and self.file_a.metric_row_name != "" and self.file_b.metric_sheet_name != "" and self.file_b.metric_row_name != ""
 
 
 class DataExtractor:
@@ -64,9 +147,9 @@ class DataExtractor:
         for file in self.list_of_files:
             [company_ticker, frequency, *_] = list(map(str.upper, file.split(".")[0].split("_"))) # Remove the extension of the file, get only the name of the company and the frequency of the data in caps and discard the rest
 
-            if frequency not in FrecuencyOfData._member_names_:
+            if frequency not in FrequencyOfData._member_names_:
                 continue
-            if FrecuencyOfData[frequency] != self.config.frecuency_of_data:
+            if FrequencyOfData[frequency] != self.config.frecuency_of_data:
                 continue
             
             workbook = opx.load_workbook(os.path.join(self.config.files_path, file))
@@ -80,19 +163,19 @@ class DataExtractor:
         worksheet = None
         file_config = None
         try:
-            worksheet = workbook[self.config.file_b.sheet_name_of_metric] # The sheet names don't need to get stripped
+            worksheet = workbook[self.config.file_b.metric_sheet_name] # The sheet names don't need to get stripped
             file_config = self.config.file_b
         except:
             try:
                 sheet_with_metric = None
 
                 for sheet_name in workbook.sheetnames:
-                    if self.config.file_a.sheet_name_of_metric in workbook[sheet_name]["A3"].value: # Long company names reach the sheet's name character limit, but, A3 cell always has the type of sheet
+                    if self.config.file_a.metric_sheet_name in workbook[sheet_name]["A3"].value: # Long company names reach the sheet's name character limit, but, A3 cell always has the type of sheet
                         sheet_with_metric = sheet_name
                         break
 
                 if not sheet_with_metric:
-                    raise Exception(f"{self.config.file_a.sheet_name_of_metric} not found in {workbook.worksheets}. Check if sheet name for style b was correctly typed.")
+                    raise Exception(f"{self.config.file_a.metric_sheet_name} not found in {workbook.worksheets}. Check if sheet name for style b was correctly typed.")
             except:
                 raise Exception("Sheet style not recognized.")
 
@@ -112,11 +195,11 @@ class DataExtractor:
 
 
 def main():
-    file_type_a_config = FileConfig("A1", OrderOfDate.DESCENDING)
-    file_type_b_config = FileConfig("B2", OrderOfDate.ASCENDING)
+    file_type_a_config = FileStructureDetails("A1", OrderOfDate.DESCENDING)
+    file_type_b_config = FileStructureDetails("B2", OrderOfDate.ASCENDING)
 
     data_extractor_config = DataExtractorConfig("companies_data", file_type_a_config, file_type_b_config)
-    data_extractor_config.set_up_file_types("Ratios - Key Metric", "Pretax ROA", "Financial Summary", "Pretax ROA - %, TTM", FrecuencyOfData.QUARTERLY)
+    data_extractor_config.set_up_file_types("Ratios - Key Metric", "Pretax ROA", "Financial Summary", "Pretax ROA - %, TTM", FrequencyOfData.QUARTERLY)
 
     data_extractor = DataExtractor(data_extractor_config)
 
