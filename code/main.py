@@ -1,210 +1,188 @@
-import openpyxl as opx
-import os
-
-import pandas as pd
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from enum import Enum
+
+import openpyxl as opx
+from openpyxl.utils import get_column_letter, column_index_from_string, coordinate_to_tuple
+
+import os
+import datetime
+import numpy as np
+import pandas as pd
+
+from tqdm import tqdm
+
+class FrequencyOfData(Enum):
+    ANNUAL = 1
+    QUARTERLY = 2
+
+@dataclass
+class FileStyleDetails:
+    """
+    Dataclass that stores the locations, names, and any other attribute that characterizes a sheet style
+    
+    Attributes:
+        company_name_cell (str): The cell coordinate containing the company name.
+        metric_sheet_name (str, optional): The name of the sheet where the metric is located (default is an empty string).
+        metric_row_name (str, optional): The substring to search in the index of the rows of metric_sheet_name (default is an empty string).
+        sheet_name_base (str): For comparison with sheet_name_compare. Cell coord where the sheet name is located.
+        sheet_name_compare (str): For comparison with sheet_name_base. Cell coord where the sheet name is repeated.
+    """
+    company_name_cell: str
+    date_format: str
+    metric_sheet_name: str
+    metric_row: int
+    sheet_name_base: str
+    sheet_name_compare: str
+    metric_timestamp_seed: str
+
+class FileStyle(Enum):
+    A = "StyleA"
+    B = "StyleB"
+
+class FileStyleManager:
+    def __init__(self, styles : dict):
+        self.styles = styles
+
+    def determine_file_style(self, workbook : opx.Workbook) -> FileStyle:
+        """
+        Compares the contents of two cells (different cells for every file style) that contain the same substring
+
+        Returns:
+            FileStyle: If the comparison for the corresponding file style returns true
+        """
+        active_sheet = workbook.active
+        
+        for style_name, style in self.styles.items():
+            sheet_name_base = active_sheet[style.sheet_name_base].value
+            sheet_name_compare = active_sheet[style.sheet_name_compare].value.split("-") #
+            sheet_name_compare = sheet_name_compare[0].split("\xa0\xa0")[0].strip() # In style A there a bunch of "\xa0" characters
+
+            if sheet_name_compare in sheet_name_base:
+                return style_name
+            
+        raise Exception("Sheet style not recognized.")
+
+class IMetricExtractor(ABC):
+    def __init__(self, workbook : opx.Workbook, file_structure_details : FileStyleDetails):
+        self.workbook = workbook
+        self.file_structure_details = file_structure_details
+
+        self.worksheet = None
+        self.open_sheet()
+
+        self.target_row = None
+
+    def open_sheet(self) -> None:
+        for sheet in self.workbook.worksheets:
+            if self.file_structure_details.metric_sheet_name in sheet[self.file_structure_details.sheet_name_base].value:
+                self.worksheet = sheet
+                break
+
+        if not self.worksheet:
+            raise Exception(f"Metric sheet not found. {self.file_structure_details.metric_sheet_name} not in cell {self.file_structure_details.sheet_name_base} on any sheet")
+
+    @abstractmethod
+    def get_company_name(self) -> str:
+        pass
+
+    def get_metric_data(self) -> pd.Series:
+        timestamps = []
+        metric_values = []
+
+        [row_num_timestamp, col_num] = coordinate_to_tuple(self.file_structure_details.metric_timestamp_seed)
+        row_num_data = self.file_structure_details.metric_row
+
+        for col_num in range(col_num, self.worksheet.max_column + 1):
+            col_letter = get_column_letter(col_num)
+
+            timestamp = self.worksheet[f"{col_letter}{row_num_timestamp}"].value
+            if not isinstance(timestamp, datetime.datetime):
+                timestamp = datetime.datetime.strptime(timestamp.strip(), self.file_structure_details.date_format)
+
+            timestamps.append(timestamp)
+            metric_values.append(self.worksheet[f"{col_letter}{row_num_data}"].value)
+
+        return pd.Series(data=metric_values, index=timestamps).sort_index()
+
+class MetricExtractorFileStyleA(IMetricExtractor):
+    def get_company_name(self) -> str:
+        return self.worksheet[self.file_structure_details.company_name_cell].value.split(" | ")[0].strip()
+
+
+class MetricExtractorFileStyleB(IMetricExtractor):
+    def get_company_name(self) -> str:
+        return self.worksheet[self.file_structure_details.company_name_cell].value.split(" (")[0].strip()
 
 
 @dataclass
 class MetricOfCompany:
     company_name: str
     company_ticker: str
-    metric_name: str
     metric_data: pd.Series
 
     def __repr__(self):
-        data_status = "Data has been extracted." if not self.metric_data.empty else "Failed to extrac data."
-        return f"Company: {self.company_name}, metric name: {self.metric_name}. {data_status}\n"
-
-
-class OrderOfDate(Enum):
-    ASCENDING = 1
-    DESCENDING = 2
-
-@dataclass
-class FileStructureDetails:
-    company_name_cell: str
-    order_of_date: OrderOfDate
-    metric_sheet_name: str = ""
-    metric_row_name: str = ""
-
-
-class FrequencyOfData(Enum):
-    ANNUAL = 1
-    QUARTERLY = 2
-
-class FileStyle(Enum):
-    A = 1
-    B = 2
-
-class IMetricExtractor(ABC):
-    def __init__(self, workbook : opx.Workbook, file_structure_details : FileStructureDetails):
-        self.workbook = workbook
-        self.file_structure_details = file_structure_details
-
-    @abstractmethod
-    def get_company_name(self):
-        pass
-
-    @abstractmethod
-    def get_company_ticker(self):
-        pass
-
-    @abstractmethod
-    def get_metric_name(self):
-        pass
-
-    @abstractmethod
-    def get_metric_data(self):
-        pass
-
-class MetricExtractorFileStyleA(IMetricExtractor):
-    def get_company_name(self):
-        pass
-
-    def get_company_ticker(self):
-        pass
-
-    def get_metric_name(self):
-        pass
-
-    def get_metric_data(self):
-        pass
-
-class MetricExtractorFileStyleB(IMetricExtractor):
-    def get_company_name(self):
-        pass
-
-    def get_company_ticker(self):
-        pass
-
-    def get_metric_name(self):
-        pass
-
-    def get_metric_data(self):
-        pass
+        data_status = "Data has been extracted." if not self.metric_data.empty else "Failed to extract data."
+        return f"Company: {self.company_name}. {data_status}"
 
 class PerMetricExtractor():
-    def __init__(self, metric_extractors : dict, data_folder : str):
-        self.metric_extractors = metric_extractors
+    def __init__(self, data_folder : str, file_styles_details : dict, file_style_to_metric_extractor_map : dict):
         self.data_folder = data_folder
         self.file_names = os.listdir(data_folder)
+        self.styles_details = file_styles_details
+        self.file_style_to_metric_extractor_map = file_style_to_metric_extractor_map
 
     def extract(self, data_frequency : FrequencyOfData):
-        for file in self.file_names:
-            # TODO: Open the right workbook (based on the frequency)
+        progress_bar = tqdm(total=int(len(self.file_names)/3)) # int() to dispaly x/int instead of x/float. Magic number 3 is justified by the fact that every company comes with 3 files ALWAYS.
+        style_manager = FileStyleManager(self.styles_details)
+        metrics_of_companies = []
+        for file_name in self.file_names:
+            [company_ticker, frequency, *_] = list(map(str.upper, file_name.split(".")[0].split("_"))) # Remove the extension of the file, get only the name of the company and the frequency of the data in caps and discard the rest
 
-            # TODO: Get type of file with determine_file_style()
-
-            # TODO: Select the extractor based on the FileStyle
-
-            # TODO: Field by field extract the data for to instantiate MetricOfCompany()
-
-            # TODO: Instantiate MetricOfCompany()
-
-            # TODO: Return MetricOfCompany
-            
-            pass
-        
-
-def determine_file_style(workbook : opx.Workbook) -> FileStyle:
-    if "":
-        return FileStyle.A
-    elif "":
-        return FileStyle.B
-    else:
-        return None  
-
-
-class DataExtractorConfig:
-
-    def __init__(self, files_path: str, file_a_config: FileStructureDetails, file_b_config: FileStructureDetails):
-        self.files_path = files_path
-        self.file_a = file_a_config
-        self.file_b = file_b_config
-
-    def set_up_file_types(self, sheet_a: str, row_a: str, sheet_b: str, row_b: str, frecuency_of_data: FrequencyOfData = FrequencyOfData.QUARTERLY):
-        self.file_a.metric_sheet_name = sheet_a
-        self.file_a.metric_row_name = row_a
-        self.file_b.metric_sheet_name = sheet_b
-        self.file_b.metric_row_name = row_b
-        self.frecuency_of_data = frecuency_of_data
-
-    def fully_set_up(self) -> bool:
-        return self.file_a.metric_sheet_name != "" and self.file_a.metric_row_name != "" and self.file_b.metric_sheet_name != "" and self.file_b.metric_row_name != ""
-
-
-class DataExtractor:
-    def __init__(self, data_extractor_config: DataExtractorConfig):
-        if not data_extractor_config.fully_set_up():
-            raise Exception("Data extractor is not fully configured")
-        self.config = data_extractor_config
-        self.list_of_files = os.listdir(self.config.files_path)
-
-    def extract(self):
-        for file in self.list_of_files:
-            [company_ticker, frequency, *_] = list(map(str.upper, file.split(".")[0].split("_"))) # Remove the extension of the file, get only the name of the company and the frequency of the data in caps and discard the rest
-
-            if frequency not in FrequencyOfData._member_names_:
+            if frequency != data_frequency.name:
                 continue
-            if FrequencyOfData[frequency] != self.config.frecuency_of_data:
-                continue
-            
-            workbook = opx.load_workbook(os.path.join(self.config.files_path, file))
-            metric = self.__extract_metric_of_company(workbook)
 
-            # workbook = openpyxl.load_workbook(file)
-            # metric_of_company = self.__extract_metric_of_company(workbook)
-            # print(metric_of_company)
+            progress_bar.set_description(f"Processing {company_ticker}")
+            progress_bar.update(1)
 
-    def __extract_metric_of_company(self, workbook: opx.Workbook) -> MetricOfCompany:
-        worksheet = None
-        file_config = None
-        try:
-            worksheet = workbook[self.config.file_b.metric_sheet_name] # The sheet names don't need to get stripped
-            file_config = self.config.file_b
-        except:
-            try:
-                sheet_with_metric = None
-
-                for sheet_name in workbook.sheetnames:
-                    if self.config.file_a.metric_sheet_name in workbook[sheet_name]["A3"].value: # Long company names reach the sheet's name character limit, but, A3 cell always has the type of sheet
-                        sheet_with_metric = sheet_name
-                        break
-
-                if not sheet_with_metric:
-                    raise Exception(f"{self.config.file_a.metric_sheet_name} not found in {workbook.worksheets}. Check if sheet name for style b was correctly typed.")
-            except:
-                raise Exception("Sheet style not recognized.")
-
-            worksheet = workbook[sheet_with_metric]
-            file_config = self.config.file_a
-
-        company_name = workbook[self.config.file_a.company_name_cell].value
-
-        return None
+            workbook = opx.load_workbook(os.path.join(self.data_folder, file_name))
         
+            file_style = style_manager.determine_file_style(workbook)
+            extractor = self.determine_extractor(file_style)(workbook, self.styles_details[file_style])
+            if not extractor:
+                raise Exception("Unrecognized file style")
 
-        # company_name = workbook[self.config.file_a.company_name_cell].value
-        # company_ticker = workbook[self.config.file_b.company_name_cell].value
-        # metric_name = workbook[self.config.file_a.sheet_name_of_metric][self.config.file_a.row_name_of_metric].value
-        # metric_data = self.__extract_metric_data(workbook)
-        # return MetricOfCompany(company_name, company_ticker, metric_name, metric_data)
+            company_name = extractor.get_company_name()
+            metric_data = extractor.get_metric_data()
+
+            metrics_of_companies.append(MetricOfCompany(company_name, company_ticker, metric_data))
+
+        progress_bar.close()
+
+        return metrics_of_companies
+
+    def determine_extractor(self, file_style : FileStyle) -> IMetricExtractor:
+        return self.file_style_to_metric_extractor_map.get(file_style, None) # Nice, method built into the dict
 
 
 def main():
-    file_type_a_config = FileStructureDetails("A1", OrderOfDate.DESCENDING)
-    file_type_b_config = FileStructureDetails("B2", OrderOfDate.ASCENDING)
+    # Set up objects
+    extractor_classes = {
+            FileStyle.A: MetricExtractorFileStyleA,
+            FileStyle.B: MetricExtractorFileStyleB
+        } # TODO: Go back to only having one class. The only difference between the classes is one string in the abstract method they share, add this string as a parameter in the FileStyleDetails dataclass
+    # TODO: this could get a rework. telling the sheet and row name to go retrieve is redundant. An idea is to get the common row substring and search for it in every style to get the target row
+    file_styles_details_ROA = {
+            FileStyle.A: FileStyleDetails("A1", "%b-%Y", "Ratios - Key Metric", 28, "A1", "A3", "C6"),
+            FileStyle.B: FileStyleDetails("B2", "%d-%m-%Y", "Financial Summary", 73, "A1", "A14", "B12")
+        }
+    ROA_frecuency = FrequencyOfData.QUARTERLY
+    ROA_extractor = PerMetricExtractor("companies_data", file_styles_details_ROA, extractor_classes)
 
-    data_extractor_config = DataExtractorConfig("companies_data", file_type_a_config, file_type_b_config)
-    data_extractor_config.set_up_file_types("Ratios - Key Metric", "Pretax ROA", "Financial Summary", "Pretax ROA - %, TTM", FrequencyOfData.QUARTERLY)
-
-    data_extractor = DataExtractor(data_extractor_config)
-
-    data_extractor.extract()
-
+    # Execute main logic
+    ROA = ROA_extractor.extract(ROA_frecuency)
+    [print(roa) for roa in ROA]
+    # Do stuff with data...
 
 if __name__ == "__main__":
     main()
