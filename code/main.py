@@ -88,8 +88,12 @@ class IMetricExtractor(ABC):
     def get_company_name(self) -> str:
         pass
 
+    @abstractmethod
+    def get_quarters_till_next_year(self, qtny : int, quarters_in_year : int) -> int:
+        pass
+
     def format_date(self, date: datetime.datetime, quarter: int, year: str):
-        full_date_str = self.quarter_end_dates[quarter-1] + "-" + year
+        full_date_str = self.quarter_end_dates[quarter-1] + "-" + year # Offset of -1: quarters 1-4, index 0-3
 
         return datetime.datetime.strptime(full_date_str, "%d-%m-%Y")
 
@@ -104,7 +108,7 @@ class IMetricExtractor(ABC):
         # Variables for date formatting
         quarters = 4
         current_year = None
-        quarters_till_next_year = None
+        quarters_till_next_year = 0
 
         for col_num in range(col_num, self.worksheet.max_column + 1):
             col_letter = get_column_letter(col_num)
@@ -115,17 +119,19 @@ class IMetricExtractor(ABC):
 
             # Determine the quarter
             year_cell_value = self.worksheet[f"{get_column_letter(col_num)}{row_num_timestamp-1}"].value
-            if year_cell_value != current_year and year_cell_value is not None:
+            if year_cell_value != current_year and year_cell_value is not None: # Every time I am on a new year, count how many quarters until the next
                 current_year = year_cell_value
                 quarters_till_next_year = 0
-                # Calculate quarters until next year
-                for i in range(1, quarters):
+                # Calculate quarters until next year by comparing the current value against the next 4 which would yield 4 quarters until next year
+                for i in range(1, quarters+1): 
                     year_cell_value_i = self.worksheet[f"{get_column_letter(col_num+i)}{row_num_timestamp-1}"].value
-                    if year_cell_value_i == current_year or year_cell_value_i is None:
-                        quarters_till_next_year += 1
-                    else: # If it is the next year
+                    quarters_till_next_year += 1
+                    if not (year_cell_value_i == current_year or year_cell_value_i is None):
                         break
-            quarter = quarters - quarters_till_next_year
+
+            quarter = self.get_quarters_till_next_year(quarters_till_next_year, quarters) # Deals with ascending and descending order in date
+
+            print(quarter, timestamp)
 
             timestamp = self.format_date(timestamp, quarter, current_year.strip())
             quarters_till_next_year -= 1
@@ -140,9 +146,19 @@ class MetricExtractorFileStyleA(IMetricExtractor):
     def get_company_name(self) -> str:
         return self.worksheet[self.file_structure_details.company_name_cell].value.split(self.file_structure_details.company_name_separator)[0].strip()
 
+    def get_quarters_till_next_year(self, qtny : int, quarters_in_year : int) -> int:
+        # Date is descending order
+        current_quarter = qtny
+        return qtny
+
 class MetricExtractorFileStyleB(IMetricExtractor):
     def get_company_name(self) -> str:
         return self.worksheet[self.file_structure_details.company_name_cell].value.split(self.file_structure_details.company_name_separator)[0].strip()
+
+    def get_quarters_till_next_year(self, qtny : int, quarters_in_year : int) -> int:
+        # Date is in ascending order
+        current_quarter = quarters_in_year - (qtny - 1) # qtny: 1-4. If qtny is one, it means we are in q4, so current_quarter = 4 - (1-1) which returns quarter 4 as expected
+        return current_quarter  
 
 @dataclass
 class MetricOfCompany:
@@ -165,7 +181,7 @@ class MetricExtractor():
         progress_bar = tqdm(total=int(len(self.file_names)/3)) # int() to dispaly x/int instead of x/float. Magic number 3 is justified by the fact that every company comes with 3 files ALWAYS.
         style_manager = FileStyleManager(self.styles_details)
         metrics_of_companies = []
-        for file_name in self.file_names:
+        for file_name in self.file_names[0:6]:
             [company_ticker, frequency, *_] = list(map(str.upper, file_name.split(".")[0].split("_"))) # Remove the extension of the file, get only the name of the company and the frequency of the data in caps and discard the rest
 
             if frequency != data_frequency.name:
