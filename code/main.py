@@ -29,6 +29,7 @@ class FileStyleDetails:
         sheet_name_compare (str): For comparison with sheet_name_base. Cell coord where the sheet name is repeated.
     """
     company_name_cell: str
+    company_name_separator: str
     date_format: str
     metric_sheet_name: str
     metric_row: int
@@ -134,13 +135,14 @@ class IMetricExtractor(ABC):
 
         return pd.Series(data=metric_values, index=timestamps).sort_index()
 
+# TODO: Remove this factory method pattern, it is no longer being used.
 class MetricExtractorFileStyleA(IMetricExtractor):
     def get_company_name(self) -> str:
-        return self.worksheet[self.file_structure_details.company_name_cell].value.split(" | ")[0].strip()
+        return self.worksheet[self.file_structure_details.company_name_cell].value.split(self.file_structure_details.company_name_separator)[0].strip()
 
 class MetricExtractorFileStyleB(IMetricExtractor):
     def get_company_name(self) -> str:
-        return self.worksheet[self.file_structure_details.company_name_cell].value.split(" (")[0].strip()
+        return self.worksheet[self.file_structure_details.company_name_cell].value.split(self.file_structure_details.company_name_separator)[0].strip()
 
 @dataclass
 class MetricOfCompany:
@@ -200,8 +202,8 @@ def main():
         } # TODO: Go back to only having one class. The only difference between the classes is one string in the abstract method they share, add this string as a parameter in the FileStyleDetails dataclass
     # TODO: this could get a rework. telling the sheet and row name to go retrieve is redundant. An idea is to get the common row substring and search for it in every style to get the target row
     file_styles_details_ROA = {
-            FileStyle.A: FileStyleDetails("A1", "%b-%Y", "Ratios - Key Metric", 28, "A1", "A3", "C6"),
-            FileStyle.B: FileStyleDetails("B2", "%d-%m-%Y", "Financial Summary", 73, "A1", "A14", "B12")
+            FileStyle.A: FileStyleDetails("A1", " | ", "%b-%Y", "Ratios - Key Metric", 28, "A1", "A3", "C6"),
+            FileStyle.B: FileStyleDetails("B2", " (", "%d-%m-%Y", "Financial Summary", 73, "A1", "A14", "B12")
         }
     ROA_frecuency = FrequencyOfData.QUARTERLY
     ROA_extractor = MetricExtractor("companies_data", file_styles_details_ROA, extractor_classes)
