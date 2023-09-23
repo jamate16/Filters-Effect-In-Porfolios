@@ -88,15 +88,20 @@ class IMetricExtractor(ABC):
     def get_company_name(self) -> str:
         pass
 
-    @abstractmethod
-    def get_quarters_till_next_year(self, qtny : int, quarters_in_year : int) -> int:
-        pass
-
     def format_date(self, date: datetime.datetime, quarter: int, year: str):
         full_date_str = self.quarter_end_dates[quarter-1] + "-" + year # Offset of -1: quarters 1-4, index 0-3
 
         return datetime.datetime.strptime(full_date_str, "%d-%m-%Y")
 
+    @abstractmethod
+    def get_metric_data(self) -> pd.Series:
+        pass
+
+# TODO: Remove this factory method pattern, it is no longer being used.
+class MetricExtractorFileStyleA(IMetricExtractor):
+    def get_company_name(self) -> str:
+        return self.worksheet[self.file_structure_details.company_name_cell].value.split(self.file_structure_details.company_name_separator)[0].strip()
+    
     def get_metric_data(self) -> pd.Series:
         timestamps = []
         metric_values = []
@@ -129,9 +134,8 @@ class IMetricExtractor(ABC):
                     if not (year_cell_value_i == current_year or year_cell_value_i is None):
                         break
 
-            quarter = self.get_quarters_till_next_year(quarters_till_next_year, quarters) # Deals with ascending and descending order in date
-
-            print(quarter, timestamp)
+            # Date is descending order
+            quarter = quarters_till_next_year
 
             timestamp = self.format_date(timestamp, quarter, current_year.strip())
             quarters_till_next_year -= 1
@@ -141,24 +145,52 @@ class IMetricExtractor(ABC):
 
         return pd.Series(data=metric_values, index=timestamps).sort_index()
 
-# TODO: Remove this factory method pattern, it is no longer being used.
-class MetricExtractorFileStyleA(IMetricExtractor):
-    def get_company_name(self) -> str:
-        return self.worksheet[self.file_structure_details.company_name_cell].value.split(self.file_structure_details.company_name_separator)[0].strip()
-
-    def get_quarters_till_next_year(self, qtny : int, quarters_in_year : int) -> int:
-        # Date is descending order
-        current_quarter = qtny
-        return qtny
-
 class MetricExtractorFileStyleB(IMetricExtractor):
     def get_company_name(self) -> str:
         return self.worksheet[self.file_structure_details.company_name_cell].value.split(self.file_structure_details.company_name_separator)[0].strip()
+    
+    def get_metric_data(self) -> pd.Series:
+        timestamps = []
+        metric_values = []
 
-    def get_quarters_till_next_year(self, qtny : int, quarters_in_year : int) -> int:
-        # Date is in ascending order
-        current_quarter = quarters_in_year - (qtny - 1) # qtny: 1-4. If qtny is one, it means we are in q4, so current_quarter = 4 - (1-1) which returns quarter 4 as expected
-        return current_quarter  
+        # Get the col and rows where the extraction starts
+        [row_num_timestamp, col_num] = coordinate_to_tuple(self.file_structure_details.metric_timestamp_seed)
+        row_num_data = self.file_structure_details.metric_row
+
+        # Variables for date formatting
+        quarters = 4
+        current_year = None
+        quarters_till_next_year = 0
+
+        for col_num in range(col_num, self.worksheet.max_column + 1):
+            col_letter = get_column_letter(col_num)
+
+            timestamp = self.worksheet[f"{col_letter}{row_num_timestamp}"].value
+            if not isinstance(timestamp, datetime.datetime):
+                timestamp = datetime.datetime.strptime(timestamp.strip(), self.file_structure_details.date_format)
+
+            # Determine the quarter
+            year_cell_value = self.worksheet[f"{get_column_letter(col_num)}{row_num_timestamp}"].value.strip()[-4:]
+            if year_cell_value != current_year and year_cell_value is not None: # Every time I am on a new year, count how many quarters until the next
+                current_year = year_cell_value
+                quarters_till_next_year = 0
+                # Calculate quarters until next year by comparing the current value against the next 4 which would yield 4 quarters until next year
+                for i in range(1, quarters+1): 
+                    year_cell_value_i = self.worksheet[f"{get_column_letter(col_num+i)}{row_num_timestamp-1}"].value
+                    quarters_till_next_year += 1
+                    if not (year_cell_value_i == current_year or year_cell_value_i is None):
+                        break
+
+            # Date is in ascending order
+            quarter = quarters - (quarters_till_next_year - 1) # qtny: 1-4. If qtny is one, it means we are in q4, so current_quarter = 4 - (1-1) which returns quarter 4 as expected
+
+            timestamp = self.format_date(timestamp, quarter, current_year.strip())
+            quarters_till_next_year -= 1
+
+            timestamps.append(timestamp)
+            metric_values.append(self.worksheet[f"{col_letter}{row_num_data}"].value)
+
+        return pd.Series(data=metric_values, index=timestamps).sort_index()
 
 @dataclass
 class MetricOfCompany:
@@ -177,11 +209,17 @@ class MetricExtractor():
         self.styles_details = file_styles_details
         self.file_style_to_metric_extractor_map = file_style_to_metric_extractor_map
 
+        # Status of last extraction
+        self.companies_successfully_extracted = 0
+        self.companies_with_not_enough_data = []
+
     def extract(self, data_frequency : FrequencyOfData):
-        progress_bar = tqdm(total=int(len(self.file_names)/3)) # int() to dispaly x/int instead of x/float. Magic number 3 is justified by the fact that every company comes with 3 files ALWAYS.
+        progress_bar = tqdm(total=int(len(self.file_names)/2)) # int() to dispaly x/int instead of x/float. Magic number 2 represents that almost all compnies only have 2 files
         style_manager = FileStyleManager(self.styles_details)
+        
         metrics_of_companies = []
-        for file_name in self.file_names[0:6]:
+        for file_name in self.file_names:
+            print(file_name)
             [company_ticker, frequency, *_] = list(map(str.upper, file_name.split(".")[0].split("_"))) # Remove the extension of the file, get only the name of the company and the frequency of the data in caps and discard the rest
 
             if frequency != data_frequency.name:
@@ -191,6 +229,11 @@ class MetricExtractor():
             progress_bar.update(1)
 
             workbook = opx.load_workbook(os.path.join(self.data_folder, file_name))
+
+            # Worksheets with less than 4 sheets are worthless to us
+            if (len(workbook.worksheets) < 4):
+                self.companies_with_not_enough_data.append(company_ticker)
+                continue
         
             file_style = style_manager.determine_file_style(workbook)
             extractor = self.determine_extractor(file_style)(workbook, self.styles_details[file_style])
@@ -204,11 +247,11 @@ class MetricExtractor():
 
         progress_bar.close()
 
+        self.companies_successfully_extracted = len(metrics_of_companies)
         return metrics_of_companies
 
     def determine_extractor(self, file_style : FileStyle) -> IMetricExtractor:
         return self.file_style_to_metric_extractor_map.get(file_style, None) # Nice, method built into the dict
-
 
 def main():
     # Set up objects
@@ -219,15 +262,16 @@ def main():
     # TODO: this could get a rework. telling the sheet and row name to go retrieve is redundant. An idea is to get the common row substring and search for it in every style to get the target row
     file_styles_details_ROA = {
             FileStyle.A: FileStyleDetails("A1", " | ", "%b-%Y", "Ratios - Key Metric", 28, "A1", "A3", "C6"),
-            FileStyle.B: FileStyleDetails("B2", " (", "%d-%m-%Y", "Financial Summary", 73, "A1", "A14", "B12")
+            FileStyle.B: FileStyleDetails("B2", " (", "%d-%m-%Y", "Financial Summary", 73, "A1", "A14", "B15")
         }
     ROA_frecuency = FrequencyOfData.QUARTERLY
     ROA_extractor = MetricExtractor("companies_data", file_styles_details_ROA, extractor_classes)
 
     # Execute main logic
     ROA = ROA_extractor.extract(ROA_frecuency)
-    [print(roa.company_name, roa.metric_data) for roa in ROA]
+    #[print(roa.company_name, roa.metric_data) for roa in ROA]
     # Do stuff with data...
+
 
 if __name__ == "__main__":
     main()
