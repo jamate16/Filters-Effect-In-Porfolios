@@ -91,24 +91,14 @@ class IMetricExtractor(ABC):
         if not self.worksheet:
             raise Exception(f"Metric sheet not found. {self.file_structure_details.metric_sheet_name} not in cell {self.file_structure_details.sheet_name_base} on any sheet")
 
-    @abstractmethod
     def get_company_name(self) -> str:
-        pass
+        return self.worksheet[self.file_structure_details.company_name_cell].value.split(self.file_structure_details.company_name_separator)[0].strip()
 
     def format_date(self, date: datetime.datetime, quarter: int, year: str):
         full_date_str = self.quarter_end_dates[quarter-1] + "-" + year # Offset of -1: quarters 1-4, index 0-3
 
         return datetime.datetime.strptime(full_date_str, "%d-%m-%Y")
 
-    @abstractmethod
-    def get_metric_data(self) -> pd.Series:
-        pass
-
-# TODO: Assess if we need strategy pattern here. Lots or repeated code in the concrete implementations of the interface.
-class MetricExtractorFileStyleA(IMetricExtractor):
-    def get_company_name(self) -> str:
-        return self.worksheet[self.file_structure_details.company_name_cell].value.split(self.file_structure_details.company_name_separator)[0].strip()
-    
     def get_metric_data(self) -> pd.Series:
         timestamps = []
         metric_values = []
@@ -117,70 +107,7 @@ class MetricExtractorFileStyleA(IMetricExtractor):
         [row_num_timestamp, col_num] = coordinate_to_tuple(self.file_structure_details.metric_timestamp_seed)
 
         # Find row that contains the target metric
-        row_num_data = 0
-        for cell in self.worksheet['A']:
-            if cell.value is not None and self.file_structure_details.metric_name in cell.value:
-                row_num_data = cell.row
-                break
-
-        if row_num_data == 0:
-            raise MetricNotFoundInSheet(self.file_structure_details.metric_name, self.file_structure_details.metric_sheet_name)
-
-        # Variables for date formatting
-        quarters = 4
-        current_year = None
-        quarters_till_next_year = 0
-
-        for col_num in range(col_num, self.worksheet.max_column + 1):
-            col_letter = get_column_letter(col_num)
-
-            timestamp = self.worksheet[f"{col_letter}{row_num_timestamp}"].value
-            if not isinstance(timestamp, datetime.datetime):
-                timestamp = datetime.datetime.strptime(timestamp.strip(), self.file_structure_details.date_format)
-
-            # Determine the quarter
-            year_cell_value = self.worksheet[f"{get_column_letter(col_num)}{row_num_timestamp-1}"].value
-            if year_cell_value != current_year and year_cell_value is not None: # Every time I am on a new year, count how many quarters until the next
-                current_year = year_cell_value
-                quarters_till_next_year = 0
-                # Calculate quarters until next year by comparing the current value against the next 4 which would yield 4 quarters until next year
-                for i in range(1, quarters+1): 
-                    year_cell_value_i = self.worksheet[f"{get_column_letter(col_num+i)}{row_num_timestamp-1}"].value
-                    quarters_till_next_year += 1
-                    if not (year_cell_value_i == current_year or year_cell_value_i is None):
-                        break
-
-            # Date is descending order
-            quarter = quarters_till_next_year
-
-            timestamp = self.format_date(timestamp, quarter, current_year.strip())
-            quarters_till_next_year -= 1
-
-            timestamps.append(timestamp)
-            metric_values.append(self.worksheet[f"{col_letter}{row_num_data}"].value)
-
-        return pd.Series(data=metric_values, index=timestamps).sort_index()
-
-class MetricExtractorFileStyleB(IMetricExtractor):
-    def get_company_name(self) -> str:
-        return self.worksheet[self.file_structure_details.company_name_cell].value.split(self.file_structure_details.company_name_separator)[0].strip()
-    
-    def get_metric_data(self) -> pd.Series:
-        timestamps = []
-        metric_values = []
-
-        # Get the col and rows where the extraction starts
-        [row_num_timestamp, col_num] = coordinate_to_tuple(self.file_structure_details.metric_timestamp_seed)
-
-        # Find row that contains the target metric
-        row_num_data = 0
-        for cell in self.worksheet['A']:
-            if cell.value is not None and self.file_structure_details.metric_name in cell.value:
-                row_num_data = cell.row
-                break
-
-        if row_num_data == 0:
-            raise MetricNotFoundInSheet(self.file_structure_details.metric_name, self.file_structure_details.metric_sheet_name)
+        row_num_data = self.find_row_with_target_metric()
 
         # Variables for date formatting
         quarters = 4
@@ -206,8 +133,7 @@ class MetricExtractorFileStyleB(IMetricExtractor):
                     if not (year_cell_value_i == current_year or year_cell_value_i is None):
                         break
 
-            # Date is in ascending order
-            quarter = quarters - (quarters_till_next_year - 1) # qtny: 1-4. If qtny is one, it means we are in q4, so current_quarter = 4 - (1-1) which returns quarter 4 as expected
+            quarter = self.calculate_fiscal_quarter(quarters_till_next_year, quarters)
 
             timestamp = self.format_date(timestamp, quarter, current_year.strip())
             quarters_till_next_year -= 1
@@ -216,6 +142,31 @@ class MetricExtractorFileStyleB(IMetricExtractor):
             metric_values.append(self.worksheet[f"{col_letter}{row_num_data}"].value)
 
         return pd.Series(data=metric_values, index=timestamps).sort_index()
+
+    def find_row_with_target_metric(self) -> int:
+        row_num_data = 0
+        for cell in self.worksheet['A']:
+            if cell.value is not None and self.file_structure_details.metric_name in cell.value:
+                row_num_data = cell.row
+                break
+
+        if row_num_data == 0:
+            raise MetricNotFoundInSheet(self.file_structure_details.metric_name, self.file_structure_details.metric_sheet_name)
+
+        return row_num_data
+
+    @abstractmethod
+    def calculate_fiscal_quarter(self, qs_till_next_year: int, qs_in_year):
+        pass
+
+# TODO: Assess if we need strategy pattern here. Lots or repeated code in the concrete implementations of the interface.
+class MetricExtractorFileStyleA(IMetricExtractor):
+    def calculate_fiscal_quarter(self, qs_till_next_year: int, qs_in_year):
+        return qs_till_next_year # Date is descending order
+
+class MetricExtractorFileStyleB(IMetricExtractor):
+    def calculate_fiscal_quarter(self, qs_till_next_year: int, qs_in_year):
+        return qs_in_year - (qs_till_next_year - 1) # If qtny is one, it means we are in q4, so current_quarter = 4 - (1-1) which returns quarter 4 as expected
 
 @dataclass
 class MetricOfCompany:
@@ -286,11 +237,13 @@ class MetricExtractor():
         self.extracted_data = metrics_of_companies
 
     def determine_extractor(self, file_style : FileStyle) -> IMetricExtractor:
+        
+        
         return self.file_style_to_metric_extractor_map.get(file_style, None) # Nice, method built into the dict
 
     def print_extraction_summary(self) -> None:
         summary_str = f"Successfully extracted data for {self.companies_successfully_extracted}. "
-        summary_str += f"{self.companies_with_not_enough_data} companies ignored, corresponding workbook incomplete." if len(self.companies_with_not_enough_data) > 0 else ""
+        summary_str += f"{self.companies_with_not_enough_data} companies ignored, corresponding workbook incomplete or metric not found in target sheet." if len(self.companies_with_not_enough_data) > 0 else ""
         print(summary_str)
 
     def get_dataframe(self) -> pd.DataFrame:
