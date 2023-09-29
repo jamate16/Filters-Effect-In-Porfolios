@@ -60,7 +60,7 @@ class IMetricExtractor(ABC):
         metric_values = []
 
         # Get the col and rows where the extraction starts
-        [row_num_timestamp, col_num] = coordinate_to_tuple(self.file_structure_details.metric_timestamp_seed)
+        [row_num_timestamp, col_num] = coordinate_to_tuple(self.file_structure_details.timestamp_coord)
 
         # Find row that contains the target metric
         row_num_data = self.find_row_with_target_metric()

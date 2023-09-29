@@ -21,14 +21,39 @@ class FileStyleDetails:
         sheet_name_base (str): For comparison with sheet_name_compare. Cell coord where the sheet name is located.
         sheet_name_compare (str): For comparison with sheet_name_base. Cell coord where the sheet name is repeated.
     """
+    metric_name: str
+    metric_sheet_name: str
     company_name_cell: str
     company_name_separator: str
     date_format: str
-    metric_sheet_name: str
-    metric_name: str
     sheet_name_base: str
     sheet_name_compare: str
-    metric_timestamp_seed: str
+    timestamp_coord: str
+
+
+# TODO: Implement configurations as a dictionary, not as members
+class FileStyleDetailsFactory:
+    def __init__(self, date_format: str, company_name_cell: str, company_name_separator: str, sheet_name_base: str, sheet_name_compare: str, timestamp_coord: str):
+        self.date_format = date_format
+        self.company_name_cell = company_name_cell
+        self.company_name_separator = company_name_separator
+        self.sheet_name_base = sheet_name_base
+        self.sheet_name_compare = sheet_name_compare
+        self.timestamp_coord = timestamp_coord
+
+    """ Create FileStyleDetails object with the base values and the two parameters.
+    Those two parameters are the ones that change the most when creating a new FileStyleDetails.
+      """
+    def create(self, metric_name: str, metric_sheet_name: str) -> FileStyleDetails:
+        return FileStyleDetails(
+            metric_name, metric_sheet_name,
+            self.company_name_cell,
+            self.company_name_separator,
+            self.date_format,
+            self.sheet_name_base,
+            self.sheet_name_compare,
+            self.timestamp_coord
+        )
 
 
 class FileStyleManager:
