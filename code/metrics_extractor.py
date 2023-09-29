@@ -12,57 +12,13 @@ import pandas as pd
 
 from tqdm import tqdm
 
+from file_style import FileStyle, FileStyleDetails, FileStyleManager
+from file_style_configs_by_metric import file_style_configs_by_metric
+
+
 class FrequencyOfData(Enum):
     ANNUAL = 1
     QUARTERLY = 2
-
-@dataclass
-class FileStyleDetails:
-    """
-    Dataclass that stores the locations, names, and any other attribute that characterizes a sheet style
-    
-    Attributes:
-        company_name_cell (str): The cell coordinate containing the company name.
-        metric_sheet_name (str, optional): The name of the sheet where the metric is located (default is an empty string).
-        metric_row_name (str, optional): The substring to search in the index of the rows of metric_sheet_name (default is an empty string).
-        sheet_name_base (str): For comparison with sheet_name_compare. Cell coord where the sheet name is located.
-        sheet_name_compare (str): For comparison with sheet_name_base. Cell coord where the sheet name is repeated.
-    """
-    company_name_cell: str
-    company_name_separator: str
-    date_format: str
-    metric_sheet_name: str
-    metric_name: str
-    sheet_name_base: str
-    sheet_name_compare: str
-    metric_timestamp_seed: str
-
-class FileStyle(Enum):
-    A = "StyleA"
-    B = "StyleB"
-
-class FileStyleManager:
-    def __init__(self, styles : dict):
-        self.styles = styles
-
-    def determine_file_style(self, workbook : opx.Workbook) -> FileStyle:
-        """
-        Compares the contents of two cells (different cells for every file style) that contain the same substring
-
-        Returns:
-            FileStyle: If the comparison for the corresponding file style returns true
-        """
-        active_sheet = workbook.active
-        
-        for style_name, style in self.styles.items():
-            sheet_name_base = active_sheet[style.sheet_name_base].value
-            sheet_name_compare = active_sheet[style.sheet_name_compare].value.split("-") #
-            sheet_name_compare = sheet_name_compare[0].split("\xa0\xa0")[0].strip() # In style A there a bunch of "\xa0" characters
-
-            if sheet_name_compare in sheet_name_base:
-                return style_name
-            
-        raise Exception("Sheet style not recognized.")
 
 class MetricNotFoundInSheet(Exception):
     def __init__(self, metric_name: str, sheet_name: str):
@@ -97,7 +53,7 @@ class IMetricExtractor(ABC):
     def format_date(self, date: datetime.datetime, quarter: int, year: str):
         full_date_str = self.quarter_end_dates[quarter-1] + "-" + year # Offset of -1: quarters 1-4, index 0-3
 
-        return datetime.datetime.strptime(full_date_str, "%d-%m-%Y")
+        return datetime.datetime.strptime(full_date_str, "%d-%m-%Y").date()
 
     def get_metric_data(self) -> pd.Series:
         timestamps = []
@@ -176,34 +132,44 @@ class MetricExtractorFileStyleB(IMetricExtractor):
     def calculate_fiscal_quarter(self, qs_till_next_year: int, qs_in_year):
         return qs_in_year - (qs_till_next_year - 1) # If qtny is one, it means we are in q4, so current_quarter = 4 - (1-1) which returns quarter 4 as expected
 
+class MetricExtractorFileStyleFactory:
+    @staticmethod
+    def get_extractor(file_style: FileStyle, *extractor_args):
+        match file_style:
+            case FileStyle.A:
+                return MetricExtractorFileStyleA(*extractor_args)
+            case FileStyle.B:
+                return MetricExtractorFileStyleB(*extractor_args)
+            case _:
+                return None
+
 @dataclass
 class MetricOfCompany:
     company_name: str
     company_ticker: str
     metric_data: pd.Series
 
-    def __repr__(self):
+def __repr__(self):
         data_status = "Data has been extracted." if not self.metric_data.empty else "Failed to extract data."
         return f"Company: {self.company_name}. {data_status}"
 
-class MetricExtractor():
-    def __init__(self, data_folder : str, file_styles_details : dict, file_style_to_metric_extractor_map : dict):
+class MetricsExtractor():
+    def __init__(self, data_folder : str, file_style_configs_by_metrics : dict):
         self.data_folder_path = os.path.join(os.path.dirname(__file__), "..", data_folder)
-
         self.file_names = os.listdir(self.data_folder_path)
-        self.styles_details = file_styles_details
-        self.file_style_to_metric_extractor_map = file_style_to_metric_extractor_map
 
-        self.extracted_data = None
+        self.file_style_configs_by_metrics = file_style_configs_by_metrics
 
         # Status of last extraction
+        self.extracted_data = None
         self.companies_successfully_extracted = 0
         self.companies_with_not_enough_data = []
 
-    def extract(self, data_frequency : FrequencyOfData):
-        progress_bar = tqdm(total=int(len(self.file_names)/2)) # int() to dispaly x/int instead of x/float. Magic number 2 represents that almost all compnies only have 2 files
-        style_manager = FileStyleManager(self.styles_details)
+    def extract(self, metric: str, data_frequency: FrequencyOfData=FrequencyOfData.QUARTERLY):
+        file_style_configs = self.file_style_configs_by_metrics[metric]
+        style_manager = FileStyleManager(file_style_configs)
         
+        progress_bar = tqdm(total=int(len(self.file_names)/2), position=0, leave=True) # int() to dispaly x/int instead of x/float. Magic number 2 represents that almost all compnies only have 2 files
         metrics_of_companies = []
         for file_name in self.file_names:
             # Remove the extension of the file, get only the name of the company and the frequency of the data in caps and discard the rest
@@ -223,7 +189,8 @@ class MetricExtractor():
                 continue
         
             file_style = style_manager.determine_file_style(workbook)
-            extractor = self.determine_extractor(file_style)(workbook, self.styles_details[file_style])
+            extractor = MetricExtractorFileStyleFactory.get_extractor(file_style, workbook, file_style_configs[file_style])
+            
             if not extractor:
                 raise Exception("Unrecognized file style")
 
@@ -231,7 +198,7 @@ class MetricExtractor():
             try:
                 metric_data = extractor.get_metric_data().rename(company_ticker) # Give the pd.Series a name, this will later be the name of the col
             except MetricNotFoundInSheet as e:
-                print(str(e))
+                # print(str(e))
                 self.companies_with_not_enough_data.append(company_ticker)
                 continue
 
@@ -243,11 +210,6 @@ class MetricExtractor():
         self.print_extraction_summary()
         
         self.extracted_data = metrics_of_companies
-
-    def determine_extractor(self, file_style : FileStyle) -> IMetricExtractor:
-        
-        
-        return self.file_style_to_metric_extractor_map.get(file_style, None) # Nice, method built into the dict
 
     def print_extraction_summary(self) -> None:
         summary_str = f"Successfully extracted data for {self.companies_successfully_extracted}. "
@@ -263,23 +225,12 @@ class MetricExtractor():
         return merged
 
 def main():
-    # Set up objects
-    extractor_classes = {
-            FileStyle.A: MetricExtractorFileStyleA,
-            FileStyle.B: MetricExtractorFileStyleB
-        } # TODO: Go back to only having one class. The only difference between the classes is one string in the abstract method they share, add this string as a parameter in the FileStyleDetails dataclass
-    # TODO: this could get a rework. telling the sheet and row name to go retrieve is redundant. An idea is to get the common row substring and search for it in every style to get the target row
-    file_styles_details_ROA = {
-            FileStyle.A: FileStyleDetails("A1", " | ", "%b-%Y", "Ratios - Key Metric", "Pretax ROA", "A1", "A3", "C6"),
-            FileStyle.B: FileStyleDetails("B2", " (", "%d-%m-%Y", "Financial Summary", "Pretax ROA", "A1", "A14", "B15")
-        }
-    ROA_frecuency = FrequencyOfData.QUARTERLY
-    ROA_extractor = MetricExtractor("companies_data", file_styles_details_ROA, extractor_classes)
+    extractor = MetricsExtractor("companies_data", file_style_configs_by_metric)
 
     # Execute main logic
-    ROA_extractor.extract(ROA_frecuency)
-    ROA = ROA_extractor.extracted_data
-    df = ROA_extractor.get_dataframe()
+    extractor.extract("ROA")
+    ROA = extractor.extracted_data
+    df = extractor.get_dataframe()
 
 if __name__ == "__main__":
     main()
