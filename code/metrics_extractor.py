@@ -104,8 +104,7 @@ class IMetricExtractor(ABC):
                 else:
                     metric_values.append(metric_cell.value)
                 
-
-        return pd.Series(data=metric_values, index=timestamps).sort_index()
+        return pd.Series(data=metric_values, index=timestamps)
 
     def find_row_with_target_metric(self) -> int:
         row_num_data = 0
@@ -228,7 +227,7 @@ def main():
     extractor = MetricsExtractor("companies_data", file_style_configs_by_metric)
 
     # Execute main logic
-    extractor.extract("ROA")
+    extractor.extract("Pretax ROA")
     ROA = extractor.extracted_data
     df = extractor.get_dataframe()
 
