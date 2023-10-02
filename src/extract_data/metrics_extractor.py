@@ -12,9 +12,7 @@ import pandas as pd
 
 from tqdm import tqdm
 
-from file_style import FileStyle, FileStyleDetails, FileStyleManager
-from file_style_configs_by_metric import file_style_configs_by_metric
-
+from .file_style import FileStyle, FileStyleDetails, FileStyleManager
 
 class FrequencyOfData(Enum):
     ANNUAL = 1
@@ -152,9 +150,9 @@ def __repr__(self):
         data_status = "Data has been extracted." if not self.metric_data.empty else "Failed to extract data."
         return f"Company: {self.company_name}. {data_status}"
 
-class MetricsExtractor():
-    def __init__(self, data_folder : str, file_style_configs_by_metrics : dict):
-        self.data_folder_path = os.path.join(os.path.dirname(__file__), "..", data_folder)
+class MetricsExtractor:
+    def __init__(self, data_folder_path : str, file_style_configs_by_metrics : dict):
+        self.data_folder_path = data_folder_path
         self.file_names = os.listdir(self.data_folder_path)
 
         self.file_style_configs_by_metrics = file_style_configs_by_metrics
@@ -208,7 +206,7 @@ class MetricsExtractor():
         self.companies_successfully_extracted = len(metrics_of_companies)
         self.print_extraction_summary()
         
-        self.extracted_data = metrics_of_companies
+        self.extracted_data = metrics_of_companies.copy()
 
     def print_extraction_summary(self) -> None:
         summary_str = f"Successfully extracted data for {self.companies_successfully_extracted}. "
@@ -224,12 +222,13 @@ class MetricsExtractor():
         return merged
 
 def main():
-    extractor = MetricsExtractor("companies_data", file_style_configs_by_metric)
+    # extractor = MetricsExtractor("companies_data", file_style_configs_by_metric)
 
-    # Execute main logic
-    extractor.extract("Pretax ROA")
-    ROA = extractor.extracted_data
-    df = extractor.get_dataframe()
+    # # Execute main logic
+    # extractor.extract("Pretax ROA")
+    # ROA = extractor.extracted_data
+    # df = extractor.get_dataframe()
+    pass
 
 if __name__ == "__main__":
     main()

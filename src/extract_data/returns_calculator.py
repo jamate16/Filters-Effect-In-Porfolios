@@ -10,9 +10,8 @@ import numpy as np
 class StockReturnsCalculator:
     """Calculates stock returns, both quarterly and daily.
     """
-    def __init__(self):
-        self.data_path = os.path.join(os.path.dirname(__file__), "..", "pickled_data", "returns_data.pickle")
-        
+    def __init__(self, data_file_path: str):
+        self.data_file_path = data_file_path
         self.load_data()
 
     def download_stock_data(self, symbols, start_date="1999-12-31", end_date="2023-09-29"):
@@ -39,13 +38,13 @@ class StockReturnsCalculator:
 
     def load_data(self):
         try:
-            with open(self.data_path, "rb") as infile:
+            with open(self.data_file_path, "rb") as infile:
                 self.returns_data = pickle.load(infile)
         except FileNotFoundError:
             self.returns_data = {"quarterly_returns": {}, "daily_returns": {}}
 
     def save_data(self):
-        with open(self.data_path, "wb") as outfile:
+        with open(self.data_file_path, "wb") as outfile:
             pickle.dump(self.returns_data, outfile)
 
     def get_returns(self, symbols, return_type="arithmetic", refresh_data=False):
