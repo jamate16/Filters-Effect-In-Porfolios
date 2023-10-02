@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 
 
-class StockReturnsCalculator:
+class ReturnsFetcher:
     """Calculates stock returns, both quarterly and daily.
     """
     def __init__(self, data_file_path: str):
@@ -47,7 +47,7 @@ class StockReturnsCalculator:
         with open(self.data_file_path, "wb") as outfile:
             pickle.dump(self.returns_data, outfile)
 
-    def get_returns(self, symbols, return_type="arithmetic", refresh_data=False):
+    def fetch(self, symbols, return_type="arithmetic", refresh_data=False):
         symbol_not_in_sp500 = "ABNB"
         symbols.append(symbol_not_in_sp500) # For the download_stock_data method to work, the argument list hast to have a length of 2+
         # If saved data is missing symbols, download them and update the saved object
@@ -70,7 +70,7 @@ class StockReturnsCalculator:
 
 
 def main():
-    quarterly_returns, daily_returns = StockReturnsCalculator().get_returns(["ABT", "MTB", "MSFT"])
+    quarterly_returns, daily_returns = ReturnsFetcher().fetch(["ABT", "MTB", "MSFT"])
     print(type(quarterly_returns))
     print("\n", daily_returns)
 
