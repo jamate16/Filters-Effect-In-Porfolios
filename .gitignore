@@ -2,3 +2,6 @@
 *.xlsx
 *.pickle
 *.csv
+
+# Ignore cache
+__pycache__/

@@ -12,9 +12,7 @@ import pandas as pd
 
 from tqdm import tqdm
 
-from file_style import FileStyle, FileStyleDetails, FileStyleManager
-from file_style_configs_by_metric import file_style_configs_by_metric
-
+from .file_style import FileStyle, FileStyleDetails, FileStyleManager
 
 class FrequencyOfData(Enum):
     ANNUAL = 1
@@ -28,7 +26,7 @@ class MetricNotFoundInSheet(Exception):
     def __str__(self):
         return(repr(f"Metric {self.metric_name} not found in {self.sheet_name}."))
 
-class IMetricExtractor(ABC):
+class IMetricFetcher(ABC):
     def __init__(self, workbook : opx.Workbook, file_structure_details : FileStyleDetails, quarter_end_dates : list = ["31-03", "30-06", "30-09", "31-12"]):
         self.workbook = workbook
         self.file_structure_details = file_structure_details
@@ -123,22 +121,22 @@ class IMetricExtractor(ABC):
         pass
 
 # TODO: Assess if we need strategy pattern here. Lots or repeated code in the concrete implementations of the interface.
-class MetricExtractorFileStyleA(IMetricExtractor):
+class MetricFetcherFileStyleA(IMetricFetcher):
     def calculate_fiscal_quarter(self, qs_till_next_year: int, qs_in_year):
         return qs_till_next_year # Date is descending order
 
-class MetricExtractorFileStyleB(IMetricExtractor):
+class MetricFetcherFileStyleB(IMetricFetcher):
     def calculate_fiscal_quarter(self, qs_till_next_year: int, qs_in_year):
         return qs_in_year - (qs_till_next_year - 1) # If qtny is one, it means we are in q4, so current_quarter = 4 - (1-1) which returns quarter 4 as expected
 
-class MetricExtractorFileStyleFactory:
+class MetricFetcherFileStyleFactory:
     @staticmethod
     def get_extractor(file_style: FileStyle, *extractor_args):
         match file_style:
             case FileStyle.A:
-                return MetricExtractorFileStyleA(*extractor_args)
+                return MetricFetcherFileStyleA(*extractor_args)
             case FileStyle.B:
-                return MetricExtractorFileStyleB(*extractor_args)
+                return MetricFetcherFileStyleB(*extractor_args)
             case _:
                 return None
 
@@ -152,9 +150,9 @@ def __repr__(self):
         data_status = "Data has been extracted." if not self.metric_data.empty else "Failed to extract data."
         return f"Company: {self.company_name}. {data_status}"
 
-class MetricsExtractor():
-    def __init__(self, data_folder : str, file_style_configs_by_metrics : dict):
-        self.data_folder_path = os.path.join(os.path.dirname(__file__), "..", data_folder)
+class MetricsFetcher:
+    def __init__(self, data_folder_path : str, file_style_configs_by_metrics : dict):
+        self.data_folder_path = data_folder_path
         self.file_names = os.listdir(self.data_folder_path)
 
         self.file_style_configs_by_metrics = file_style_configs_by_metrics
@@ -164,7 +162,7 @@ class MetricsExtractor():
         self.companies_successfully_extracted = 0
         self.companies_with_not_enough_data = []
 
-    def extract(self, metric: str, data_frequency: FrequencyOfData=FrequencyOfData.QUARTERLY):
+    def fetch(self, metric: str, data_frequency: FrequencyOfData=FrequencyOfData.QUARTERLY):
         file_style_configs = self.file_style_configs_by_metrics[metric]
         style_manager = FileStyleManager(file_style_configs)
         
@@ -188,7 +186,7 @@ class MetricsExtractor():
                 continue
         
             file_style = style_manager.determine_file_style(workbook)
-            extractor = MetricExtractorFileStyleFactory.get_extractor(file_style, workbook, file_style_configs[file_style])
+            extractor = MetricFetcherFileStyleFactory.get_extractor(file_style, workbook, file_style_configs[file_style])
             
             if not extractor:
                 raise Exception("Unrecognized file style")
@@ -208,7 +206,7 @@ class MetricsExtractor():
         self.companies_successfully_extracted = len(metrics_of_companies)
         self.print_extraction_summary()
         
-        self.extracted_data = metrics_of_companies
+        self.extracted_data = metrics_of_companies.copy()
 
     def print_extraction_summary(self) -> None:
         summary_str = f"Successfully extracted data for {self.companies_successfully_extracted}. "
@@ -224,12 +222,13 @@ class MetricsExtractor():
         return merged
 
 def main():
-    extractor = MetricsExtractor("companies_data", file_style_configs_by_metric)
+    # extractor = MetricsExtractor("companies_data", file_style_configs_by_metric)
 
-    # Execute main logic
-    extractor.extract("Pretax ROA")
-    ROA = extractor.extracted_data
-    df = extractor.get_dataframe()
+    # # Execute main logic
+    # extractor.extract("Pretax ROA")
+    # ROA = extractor.extracted_data
+    # df = extractor.get_dataframe()
+    pass
 
 if __name__ == "__main__":
     main()
