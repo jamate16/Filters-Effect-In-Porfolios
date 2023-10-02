@@ -1,0 +1,4 @@
+# Ignore data. Source's terms don't allow redistribution of data
+*.xlsx
+*.pickle
+*.csv
