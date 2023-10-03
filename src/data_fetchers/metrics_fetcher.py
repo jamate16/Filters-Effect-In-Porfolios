@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from enum import Enum
+import pickle
 
 import openpyxl as opx
 from openpyxl.utils import get_column_letter, column_index_from_string, coordinate_to_tuple
@@ -162,7 +163,12 @@ class MetricsFetcher:
         self.companies_successfully_extracted = 0
         self.companies_with_not_enough_data = []
 
-    def fetch(self, metric: str, data_frequency: FrequencyOfData=FrequencyOfData.QUARTERLY):
+    def _load_from_pickle_file(self, full_file_path) -> pd.DataFrame:
+        with open(full_file_path, "rb") as infile:
+            metric_df = pickle.load(infile)
+            return metric_df
+    
+    def _load_from_excel_file(self, metric: str, data_frequency: FrequencyOfData=FrequencyOfData.QUARTERLY):
         file_style_configs = self.file_style_configs_by_metrics[metric]
         style_manager = FileStyleManager(file_style_configs)
         
@@ -208,6 +214,25 @@ class MetricsFetcher:
         
         self.extracted_data = metrics_of_companies.copy()
 
+    def _save_metric_data(self, full_file_path: str, data: pd.DataFrame):
+        with open(full_file_path, "wb") as outfile:
+            pickle.dump(data, outfile)
+
+    def fetch(self,
+              metric: str,
+              pickled_data_path: str=os.path.join("..", "..", "data", "pickled_data"),
+              data_frequency: FrequencyOfData=FrequencyOfData.QUARTERLY):
+        
+        pickled_data_file_path = os.path.join(pickled_data_path, f"{metric}_data.pickle") # TODO: move this configuration to a file in its corresponding folder inside or src
+        try:
+            metric_df = self._load_from_pickle_file(pickled_data_file_path)
+        except FileNotFoundError:
+            self._load_from_excel_file(metric, data_frequency)
+            metric_df = self.get_dataframe()
+        # TODO: Remove the need to pass the data to _save_metric_data by, perhaps, saving self.extracted_data instead of what returns self.get_dataframe()
+        self._save_metric_data(pickled_data_file_path, metric_df)
+        return metric_df
+
     def print_extraction_summary(self) -> None:
         summary_str = f"Successfully extracted data for {self.companies_successfully_extracted}. "
         summary_str += f"{self.companies_with_not_enough_data} companies ignored, corresponding workbook incomplete or metric not found in target sheet." if len(self.companies_with_not_enough_data) > 0 else ""
@@ -219,7 +244,7 @@ class MetricsFetcher:
         for metric_object in self.extracted_data:
             merged = pd.merge(merged, metric_object.metric_data, how='outer', left_index=True, right_index=True)
         
-        return merged
+        return merged.copy()
 
 def main():
     # extractor = MetricsExtractor("companies_data", file_style_configs_by_metric)
