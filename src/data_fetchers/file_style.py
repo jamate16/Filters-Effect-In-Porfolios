@@ -25,7 +25,6 @@ class FileStyleDetails:
     metric_sheet_name: str
     company_name_cell: str
     company_name_separator: str
-    date_format: str
     sheet_name_base: str
     sheet_name_compare: str
     timestamp_coord: str
@@ -33,8 +32,7 @@ class FileStyleDetails:
 
 # TODO: Implement configurations as a dictionary, not as members
 class FileStyleDetailsFactory:
-    def __init__(self, date_format: str, company_name_cell: str, company_name_separator: str, sheet_name_base: str, sheet_name_compare: str, timestamp_coord: str):
-        self.date_format = date_format
+    def __init__(self, company_name_cell: str, company_name_separator: str, sheet_name_base: str, sheet_name_compare: str, timestamp_coord: str):
         self.company_name_cell = company_name_cell
         self.company_name_separator = company_name_separator
         self.sheet_name_base = sheet_name_base
@@ -49,7 +47,6 @@ class FileStyleDetailsFactory:
             metric_name, metric_sheet_name,
             self.company_name_cell,
             self.company_name_separator,
-            self.date_format,
             self.sheet_name_base,
             self.sheet_name_compare,
             self.timestamp_coord

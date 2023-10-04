@@ -1,7 +1,7 @@
 from ..data_fetchers.file_style import FileStyle, FileStyleDetails, FileStyleDetailsFactory
 
-file_style_a_details_factory = FileStyleDetailsFactory("%b-%Y", "A1", " | ", "A1", "A3", "C6")
-file_style_b_details_factory = FileStyleDetailsFactory("%d-%m-%Y", "B2", " (", "A1", "A14", "B15")
+file_style_a_details_factory = FileStyleDetailsFactory("A1", " | ", "A1", "A3", "C5")
+file_style_b_details_factory = FileStyleDetailsFactory("B2", " (", "A1", "A14", "B11")
 
 file_style_configs_by_metric = {
     "Pretax ROA": {

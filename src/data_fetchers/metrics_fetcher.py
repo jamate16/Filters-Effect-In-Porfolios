@@ -49,7 +49,7 @@ class IMetricFetcher(ABC):
     def get_company_name(self) -> str:
         return self.worksheet[self.file_structure_details.company_name_cell].value.split(self.file_structure_details.company_name_separator)[0].strip()
 
-    def format_date(self, date: datetime.datetime, quarter: int, year: str):
+    def format_date(self, quarter: int, year: str):
         full_date_str = self.quarter_end_dates[quarter-1] + "-" + year # Offset of -1: quarters 1-4, index 0-3
 
         return datetime.datetime.strptime(full_date_str, "%d-%m-%Y").date()
@@ -72,25 +72,20 @@ class IMetricFetcher(ABC):
         for col_num in range(col_num, self.worksheet.max_column + 1):
             col_letter = get_column_letter(col_num)
 
-            timestamp = self.worksheet[f"{col_letter}{row_num_timestamp}"].value
-            if not isinstance(timestamp, datetime.datetime):
-                timestamp = datetime.datetime.strptime(timestamp.strip(), self.file_structure_details.date_format)
-
             # Determine the quarter
-            year_cell_value = self.worksheet[f"{get_column_letter(col_num)}{row_num_timestamp}"].value.strip()[-4:]
+            year_cell_value = self.worksheet[f"{get_column_letter(col_num)}{row_num_timestamp}"].value
             if year_cell_value != current_year and year_cell_value is not None: # Every time I am on a new year, count how many quarters until the next
                 current_year = year_cell_value
                 quarters_till_next_year = 0
                 # Calculate quarters until next year by comparing the current value against the next 4 which would yield 4 quarters until next year
                 for i in range(1, quarters+1): 
-                    year_cell_value_i = self.worksheet[f"{get_column_letter(col_num+i)}{row_num_timestamp-1}"].value
+                    year_cell_value_i = self.worksheet[f"{get_column_letter(col_num+i)}{row_num_timestamp}"].value
                     quarters_till_next_year += 1
                     if not (year_cell_value_i == current_year or year_cell_value_i is None):
                         break
 
             quarter = self.calculate_fiscal_quarter(quarters_till_next_year, quarters)
-
-            timestamp = self.format_date(timestamp, quarter, current_year.strip())
+            timestamp = self.format_date(quarter, current_year.strip())
             quarters_till_next_year -= 1
 
             timestamps.append(timestamp)
