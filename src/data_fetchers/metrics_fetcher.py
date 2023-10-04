@@ -98,7 +98,7 @@ class IMetricFetcher(ABC):
             if metric_cell.value == None:
                 metric_values.append(np.NaN)
             else:
-                if metric_cell.number_format == "[>=100]##,##0.0\%;[<=-100]\-##,##0.0\%;##,##0.0\%":
+                if metric_cell.number_format == r"[>=100]##,##0.0\%;[<=-100]\-##,##0.0\%;##,##0.0\%":
                     metric_values.append(metric_cell.value/100)
                 else:
                     metric_values.append(metric_cell.value)
