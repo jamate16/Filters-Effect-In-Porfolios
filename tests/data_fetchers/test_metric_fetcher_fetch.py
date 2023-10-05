@@ -57,5 +57,7 @@ class FetchingMetricDataTestCase(unittest.TestCase):
         assert_frame_equal(fetched_data, loaded_data)
 
 
+# TODO: write tests to check if dates are being extracted correclty
+
 if __name__ == "__main__":
     unittest.main()
