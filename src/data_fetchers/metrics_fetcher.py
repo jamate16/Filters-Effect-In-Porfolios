@@ -90,15 +90,18 @@ class IMetricFetcher(ABC):
 
             timestamps.append(timestamp)
             metric_cell = self.worksheet[f"{col_letter}{row_num_data}"]
-            if metric_cell.value == None:
+            if isinstance(metric_cell.value, str):
+                metric_cell.value = metric_cell.value.strip()
+            if metric_cell.value in [None, "-", ""]:
                 metric_values.append(np.NaN)
-            else:
-                if metric_cell.number_format == r"[>=100]##,##0.0\%;[<=-100]\-##,##0.0\%;##,##0.0\%":
+            else:                                 
+                if metric_cell.number_format == r"[>=100]##,##0.0\%;[<=-100]\-##,##0.0\%;##,##0.0\%" or \
+                   metric_cell.number_format == r"[>=100]##,##0.0\%;[<=-100]-##,##0.0\%;##,##0.0\%":
                     metric_values.append(metric_cell.value/100)
                 else:
                     metric_values.append(metric_cell.value)
                 
-        return pd.Series(data=metric_values, index=timestamps)
+        return pd.Series(data=metric_values, index=timestamps).astype(float)
 
     def find_row_with_target_metric(self) -> int:
         row_num_data = 0
