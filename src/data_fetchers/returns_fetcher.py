@@ -21,8 +21,17 @@ class ReturnsFetcher:
         quarterly_returns = {}
         daily_returns = {}
 
-        for symbol in data.columns.get_level_values(1).unique():
-            df = data.loc[:, pd.IndexSlice[:, symbol]].copy()
+        is_multi_index = isinstance(data.columns, pd.MultiIndex) # When there is only one symbol, columns are not an instance of MultiIndex
+
+        columns = data.columns
+        if is_multi_index:
+            columns = columns.get_level_values(1).unique()
+
+        for symbol in columns:
+            df = data.copy()
+            if is_multi_index:
+                df = df.loc[:, pd.IndexSlice[:, symbol]].copy()
+
             df["daily_returns"] = df["Adj Close"].pct_change()
             df["quarter"] = df.index.to_period("Q")
 
@@ -31,6 +40,9 @@ class ReturnsFetcher:
             elif return_type == "geometric":
                 df["daily_growth_multiplier"] = df["daily_returns"] + 1
                 quarterly_returns[symbol] = df.groupby("quarter")["daily_growth_multiplier"].apply(np.prod) - 1
+
+                # Convert from daily to quarterly geometric mean
+                quarterly_returns[symbol] = np.power(quarterly_returns[symbol] + 1, 1/63) - 1  # Assuming around 63 trading days in a quarter
 
             daily_returns[symbol] = df["daily_returns"].copy()
 
@@ -48,20 +60,20 @@ class ReturnsFetcher:
             pickle.dump(self.returns_data, outfile)
 
     def fetch(self, symbols, return_type="arithmetic", refresh_data=False):
-        symbol_not_in_sp500 = "ABNB"
-        symbols.append(symbol_not_in_sp500) # For the download_stock_data method to work, the argument list hast to have a length of 2+
         # If saved data is missing symbols, download them and update the saved object
-        missing_data_symbols = list(set([symbol for symbol in symbols if symbol != symbol_not_in_sp500]) - set(self.returns_data["quarterly_returns"].keys()))
+        missing_data_symbols = list(set(symbols) - set(self.returns_data["quarterly_returns"].keys()))
 
         if refresh_data or return_type != self.returns_data.get("return_type"):
             data = self.download_stock_data(symbols)
             quarterly_returns, daily_returns = self.calculate_returns(data, return_type)
+
             self.returns_data = {"quarterly_returns": quarterly_returns, "daily_returns": daily_returns, "return_type": return_type}
             self.save_data()
         
         elif missing_data_symbols:
             data = self.download_stock_data(missing_data_symbols)
             quarterly_returns, daily_returns = self.calculate_returns(data, return_type)
+
             self.returns_data["quarterly_returns"].update(quarterly_returns)
             self.returns_data["daily_returns"].update(daily_returns)
             self.save_data()
@@ -70,10 +82,9 @@ class ReturnsFetcher:
 
 
 def main():
-    quarterly_returns, daily_returns = ReturnsFetcher().fetch(["ABT", "MTB", "MSFT"])
+    quarterly_returns, daily_returns = ReturnsFetcher(os.path.join("data", "pickled_data", "returns_data.pickle")).fetch(["ABT", "MTB", "MSFT"], )
     print(type(quarterly_returns))
     print("\n", daily_returns)
-
 
 if __name__ == "__main__":
     main()
