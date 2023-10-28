@@ -3,6 +3,7 @@
 *.pickle
 *.csv
 *.txt
+*.png
 
 # Ignore cache
 __pycache__/
